@@ -1,0 +1,131 @@
+Peer Review: Phase 6 Task 1 — SQL Fundamentals Kata
+Reviewer: Ashok kumar yadav
+Repository reviewed: Lukash-Napit/T_Phase6/p6t1/sql-fundamentals
+Review criteria: Naming, Readability, Modularity, Documentation, Error Handling, Performance
+
+1. Naming
+Strengths:
+
+Table names (users, posts, comments) are plural, lowercase, and self-explanatory — standard SQL convention.
+
+Column names are mostly clear: author_id on both posts and comments correctly signals a foreign key to users.id.
+
+Constraint naming is left to PostgreSQL defaults (users_email_key, posts_author_id_fkey), which is acceptable but not ideal for debugging at scale.
+
+Improvement suggestions:
+
+The comments table uses text for the comment body. body or content is more descriptive and avoids confusion with the TEXT data type.
+
+Consider explicitly naming CHECK constraints (e.g., CONSTRAINT posts_title_length_check CHECK (...)) so violation messages are easier to trace in logs.
+
+2. Readability
+Strengths:
+
+queries.sql includes a short comment before each query explaining its purpose — this is genuinely helpful.
+
+The README is well-organized with clear sections for setup, file descriptions, and reading-check answers.
+
+Improvement suggestions:
+
+Critical formatting issue: schema.sql and seed.sql are each written as a single line (viewing lines 3–10 and 3–10 respectively). This makes them extremely difficult to read, review, or debug. Each table definition should be broken into multiple lines with consistent indentation.
+
+queries.sql would benefit from blank lines between queries to visually separate them.
+
+Use consistent keyword casing (e.g., all uppercase or all lowercase) throughout. Currently the SQL keywords are uppercase, which is good, but mixing SELECT with lowercase select in some places would break consistency if it occurred.
+
+3. Modularity
+Strengths:
+
+The schema is properly decomposed into three tables with clear relationships.
+
+Foreign keys are defined on posts.author_id and comments.author_id, enforcing referential integrity for users.
+
+DROP TABLE IF EXISTS statements at the top make the schema re-runnable, which is a good practice.
+
+Critical issue — missing post_id in comments:
+
+The comments table definition in schema.sql is:
+
+sql
+CREATE TABLE comments (
+    id SERIAL PRIMARY KEY,
+    text TEXT NOT NULL,
+    author_id INTEGER NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+There is no post_id column. However:
+
+seed.sql inserts comments with a post_id value (viewing lines 7–10).
+
+queries.sql joins comments.post_id to posts.id in multiple queries (queries 2, 4, 5, 8, 10).
+
+constraint-violations.txt references a comments_post_id_fkey foreign key constraint.
+
+This means the schema as written would not run against the provided seed data or queries. The comments table must include:
+
+sql
+post_id INTEGER NOT NULL REFERENCES posts(id)
+Without this column, the entire kata is non-functional. This is the highest-priority fix.
+
+4. Documentation
+Strengths:
+
+The README is thorough — it explains setup, file contents, and answers the reading-check questions.
+
+The "Proof the LEFT JOINs are genuinely necessary" section is excellent; it demonstrates deliberate edge-case testing with Carol (zero posts) and the REST APIs post (zero comments).
+
+queries.sql documents each query's intent inline.
+
+Improvement suggestions:
+
+schema.sql has no comments explaining the constraints. A brief comment above each CHECK constraint (e.g., -- Enforce title length limit) would make the intent clearer.
+
+The README mentions a queries-output.txt file, but that file does not appear in the repository listing (viewing lines 54–71). Either add the file or remove the reference from the README to avoid confusion.
+
+5. Error Handling
+Strengths:
+
+constraint-violations.txt is genuinely impressive. It captures real PostgreSQL error messages for NOT NULL, UNIQUE, FOREIGN KEY (three variants), and CHECK violations (viewing lines 3–24).
+
+The sanity check at the end — confirming that users still has 5 rows and posts still has 4 after seven failed inserts — is a strong verification that failed attempts insert nothing.
+
+The DROP TABLE IF EXISTS pattern in schema.sql handles re-runs gracefully.
+
+Improvement suggestions:
+
+The CHECK (created_at <= NOW()) constraint on users is unusual. It prevents inserting any user with a historical creation date (e.g., migrating existing data). A more common approach is to prevent future dates only when relevant, or to use a trigger. This is a design choice worth documenting in the README.
+
+Consider adding a CHECK on comments.text to prevent empty strings, if that is a business rule.
+
+6. Performance
+Strengths:
+
+The queries use appropriate JOIN types (LEFT JOIN for zero-count scenarios, INNER JOIN where a match is required).
+
+GROUP BY queries correctly include the grouping columns.
+
+Critical gap — no indexes beyond primary keys:
+
+The schema has no indexes on foreign key columns. The queries routinely join and filter on:
+
+posts.author_id
+
+comments.post_id
+
+comments.author_id
+
+Without indexes on these columns, PostgreSQL will perform sequential scans on the referencing tables for every join. The assignment explicitly requires adding at least one index to the SQL schema. A strong candidate would be:
+
+sql
+CREATE INDEX idx_comments_post_id ON comments(post_id);
+Justification: This index speeds up the frequent query "get all comments for a given post," which appears in queries 2, 4, 5, 8, and 10. Without it, each of those queries scans the entire comments table.
+
+Summary of Actionable Feedback
+Priority	Issue	Location	Suggested Fix
+Critical	comments table missing post_id column	schema.sql	Add post_id INTEGER NOT NULL REFERENCES posts(id)
+Critical	queries-output.txt referenced in README but missing from repo	Repository root	Add the file or remove the reference
+High	No index on comments.post_id (or any FK column)	schema.sql	Add CREATE INDEX idx_comments_post_id ON comments(post_id);
+Medium	Schema and seed files are single-line, unreadable	schema.sql, seed.sql	Reformat with line breaks and indentation
+Medium	text column name is vague	comments table	Rename to body or content
+Low	CHECK constraints not explicitly named	schema.sql	Add CONSTRAINT ... CHECK (...) for easier debugging
+Low	CHECK (created_at <= NOW()) may block historical data	users table	Document the rationale or relax the constraint
